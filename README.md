@@ -71,29 +71,235 @@ make setup
 
 ### 4. 设置环境变量（可选，用于登录鉴权）
 
-| 变量 | 平台 | 说明 |
-|------|------|------|
-| `XHS_COOKIE` | 小红书 | 必须；未设置时返回示例数据 |
-| `JD_COOKIE` | 京东 | 可选；不登录也可抓公开评论 |
-| `BILI_SESSDATA` | B站 | 可选；提升 API 配额 |
-| `ZHIHU_COOKIE` | 知乎 | 可选；未设置时降低请求频率 |
+> 💡 **什么是"环境变量"？**
+>
+> 把它想象成一张**贴在电脑桌面上的便利贴**，上面写着你的账号 Cookie。
+> 程序运行时会自动去读这张便利贴——这样你就不需要把敏感信息直接写进代码里。
+> 设置过一次后，每次打开新终端都需要重新设置（除非写入配置文件，见下文）。
 
-**获取 Cookie 方法（以 Chrome 为例）**：
-1. 登录对应平台网站
-2. 按 `F12` → Application → Cookies
-3. 将完整的 Cookie 字符串复制为环境变量
+#### 4.1 各平台需要哪个环境变量？
 
-**设置方式**：
+| 环境变量名 | 对应平台 | 是否必须 | 不设置会怎样 |
+|-----------|---------|---------|------------|
+| `XHS_COOKIE` | 小红书 | **必须** | 程序返回内置示例数据，不抓取真实评论 |
+| `JD_COOKIE` | 京东 | 可选 | 不登录也能抓部分公开评论 |
+| `BILI_SESSDATA` | B站 | 可选 | 匿名访问，配额较低 |
+| `ZHIHU_COOKIE` | 知乎 | 可选 | 不登录时自动降低请求频率 |
 
-```bash
-# Bash
-export XHS_COOKIE="web_session=xxxx; ..."
-export JD_COOKIE="pin=xxx; pt_key=xxx; ..."
-export BILI_SESSDATA="xxxxxxxx"
-export ZHIHU_COOKIE="z_c0=xxxx; ..."
+---
+
+#### 4.2 如何设置环境变量？
+
+##### ▶ 方法一：命令行临时设置（推荐新手先用这个）
+
+**Windows 命令提示符（CMD）：**
+```cmd
+set XHS_COOKIE=web_session=xxxx; xsecappid=xxxx
+set JD_COOKIE=pin=xxx; pt_key=xxx
+set BILI_SESSDATA=xxxxxxxx
+set ZHIHU_COOKIE=z_c0=xxxx
+```
+> ⚠️ 注意：CMD 里等号两边**不要加空格**，且不需要引号。
+
+**Windows PowerShell：**
+```powershell
+$env:XHS_COOKIE = "web_session=xxxx; xsecappid=xxxx"
+$env:JD_COOKIE  = "pin=xxx; pt_key=xxx"
+$env:BILI_SESSDATA = "xxxxxxxx"
+$env:ZHIHU_COOKIE  = "z_c0=xxxx"
 ```
 
-在 Codespaces 中可在 **Repository secrets** 或 `.env` 文件中设置。
+**Mac / Linux（Terminal / Bash）：**
+```bash
+export XHS_COOKIE="web_session=xxxx; xsecappid=xxxx"
+export JD_COOKIE="pin=xxx; pt_key=xxx"
+export BILI_SESSDATA="xxxxxxxx"
+export ZHIHU_COOKIE="z_c0=xxxx"
+```
+> 💡 `export` 的意思就是"把这个变量公开给子进程（即 Python 脚本）使用"。
+
+---
+
+##### ▶ 方法二：写入 `.env` 文件（永久生效，推荐）
+
+在项目根目录新建一个名为 `.env` 的文本文件，内容如下：
+
+```
+XHS_COOKIE=web_session=xxxx; xsecappid=xxxx
+JD_COOKIE=pin=xxx; pt_key=xxx
+BILI_SESSDATA=xxxxxxxx
+ZHIHU_COOKIE=z_c0=xxxx
+```
+
+然后在每次运行前，先执行（Mac / Linux）：
+```bash
+source .env      # 或者：set -a; source .env; set +a
+```
+
+Windows PowerShell：
+```powershell
+Get-Content .env | ForEach-Object {
+    if ($_ -match "^([^#][^=]+)=(.+)$") {
+        [System.Environment]::SetEnvironmentVariable($matches[1].Trim(), $matches[2].Trim(), "Process")
+    }
+}
+```
+
+> ⚠️ **安全提示**：`.env` 文件包含账号信息，已在 `.gitignore` 中排除，**千万不要上传到 GitHub**！
+
+---
+
+##### ▶ 方法三：GitHub Codespaces 中设置（推荐在 Codespaces 运行时使用）
+
+1. 打开 GitHub 仓库页面
+2. 点击 **Settings**（设置）→ 左侧 **Secrets and variables** → **Codespaces**
+3. 点击 **New repository secret**（新建仓库密钥）
+4. 依次添加 `XHS_COOKIE`、`JD_COOKIE`、`BILI_SESSDATA`、`ZHIHU_COOKIE`
+5. 重新启动 Codespaces，环境变量会自动注入
+
+---
+
+#### 4.3 如何获取 Cookie？（以 Microsoft Edge 为例）
+
+> **Cookie 是什么？** 登录网站后，网站会给你浏览器发一张"通行证"，存储在浏览器里，这就是 Cookie。
+> 我们需要把这张通行证复制给爬虫程序，让它"冒充"你去访问数据。
+
+---
+
+**📖 通用步骤（所有平台相同）**
+
+**第一步：登录目标平台**
+1. 打开 Edge 浏览器，访问对应网站并**完成登录**
+   - 小红书：https://www.xiaohongshu.com
+   - 京东：https://www.jd.com
+   - B站：https://www.bilibili.com
+   - 知乎：https://www.zhihu.com
+
+**第二步：打开开发者工具**
+1. 按键盘上的 **`F12`** 键（或右键页面 → 点击"检查"）
+2. 弹出的面板就是"开发者工具"
+
+**第三步：找到 Cookie**
+1. 在顶部标签栏中点击 **`应用程序`**（英文版：**`Application`**）
+   - 如果没看到，点击顶部标签栏最右边的 **`>>`** 展开更多选项
+2. 在左侧面板中，展开 **`存储`** → **`Cookie`**
+3. 点击当前网站的域名（例如 `https://www.xiaohongshu.com`）
+4. 右侧会出现一个表格，里面每一行就是一个 Cookie 条目
+
+**第四步：复制 Cookie 字符串**
+
+方法 A（推荐）：使用网络请求一键复制
+1. 切换到顶部标签的 **`网络`**（英文：**`Network`**）选项卡
+2. 按 **`Ctrl+R`** 刷新页面（让请求重新发出）
+3. 在左侧请求列表里，点击任意一个请求（通常是域名本身，如 `www.xiaohongshu.com`）
+4. 在右侧点击 **`标头`**（英文：**`Headers`**）
+5. 找到 **`请求标头`** 下的 **`Cookie`** 字段
+6. 单击 Cookie 的值，全选（`Ctrl+A`），复制（`Ctrl+C`）
+7. 这就是完整的 Cookie 字符串 ✅
+
+方法 B：手动拼接（仅当方法 A 不可用时）
+1. 回到 `应用程序 → Cookie → 域名`
+2. 逐行记录重要 Cookie 的名称和值（见下方各平台说明）
+3. 按 `名称=值; 名称=值; ...` 的格式拼接成字符串
+
+---
+
+**🔴 小红书（XHS）— 必须登录**
+
+关键 Cookie 字段（缺少任一都可能导致请求被拒绝）：
+
+| Cookie 名称 | 说明 |
+|------------|------|
+| `web_session` | 登录会话 ID，**最重要** |
+| `xsecappid` | 应用 ID |
+| `a1` | 设备标识 |
+| `webId` | Web 用户 ID |
+
+完整 Cookie 示例（格式）：
+```
+XHS_COOKIE=web_session=040069b3xxxx; xsecappid=xhs-pc-web; a1=190xxxxxx; webId=xxxxxxxx
+```
+
+> ⚠️ 小红书 Cookie **有效期约 1 天**，建议每天运行前刷新。
+> 若遇到 401 错误，说明 Cookie 已过期，需重新获取。
+
+---
+
+**🟠 京东（JD）— 可选**
+
+关键 Cookie 字段：
+
+| Cookie 名称 | 说明 |
+|------------|------|
+| `pt_key` | 登录凭证，**最重要** |
+| `pt_pin` | 用户名（URL 编码后的中文） |
+
+完整 Cookie 示例：
+```
+JD_COOKIE=pt_key=AAxxxxxxxxxx; pt_pin=xxxxxxxx
+```
+
+> 💡 不设置 `JD_COOKIE` 时，程序仍能抓取部分公开评论（无需登录）。
+
+---
+
+**🔵 B站（Bilibili）— 可选，只需 SESSDATA**
+
+B站只需要一个特殊值 `SESSDATA`，**不是整个 Cookie 字符串**：
+
+1. 打开开发者工具 → `应用程序` → `Cookie` → `https://www.bilibili.com`
+2. 在表格中找到名为 **`SESSDATA`** 的行
+3. 复制该行的 **`值`** 列（不是整行，只是值本身）
+
+```
+BILI_SESSDATA=xxxxxxxx%2Cxxxxxxxxxx%2Cxxxxxxxx
+```
+
+> 💡 不设置也可以运行，只是匿名请求的频率上限较低。
+
+---
+
+**🟢 知乎（Zhihu）— 可选**
+
+关键 Cookie 字段：
+
+| Cookie 名称 | 说明 |
+|------------|------|
+| `z_c0` | 登录凭证，**最重要** |
+| `_zap` | 用户标识 |
+
+完整 Cookie 示例：
+```
+ZHIHU_COOKIE=z_c0=xxxxxxxx; _zap=xxxxxxxx
+```
+
+---
+
+#### 4.4 验证环境变量是否设置成功
+
+设置完毕后，在终端运行以下命令验证：
+
+**Mac / Linux：**
+```bash
+echo $XHS_COOKIE       # 应该输出你设置的 Cookie 字符串
+echo $JD_COOKIE
+echo $BILI_SESSDATA
+echo $ZHIHU_COOKIE
+```
+
+**Windows CMD：**
+```cmd
+echo %XHS_COOKIE%
+echo %JD_COOKIE%
+```
+
+**Windows PowerShell：**
+```powershell
+echo $env:XHS_COOKIE
+echo $env:JD_COOKIE
+```
+
+如果输出了 Cookie 值，说明设置成功！如果输出空白，说明设置失败，请重新检查步骤。
 
 ### 5. 运行
 
@@ -193,6 +399,8 @@ make run
 
 ---
 
+---
+
 ## 开发
 
 ```bash
@@ -213,3 +421,12 @@ records = [{'platform':'test','content':'这个产品真的很好！','keyword':
 print(run_sentiment(records))
 "
 ```
+
+---
+
+## 扩展阅读文档
+
+对代码结构感兴趣？查看以下文档：
+
+- 📄 [docs/pseudocode.md](docs/pseudocode.md) — 整个项目的伪代码，帮助理解程序运行逻辑
+- 📄 [docs/code_explanation.md](docs/code_explanation.md) — 每个文件和关键概念的通俗解释，适合初学者
