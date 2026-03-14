@@ -1,0 +1,41 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data & output (keep structure, not data)
+data/raw/*.json
+data/raw/*.csv
+data/clean/*.json
+data/clean/*.csv
+data/output/*.csv
+data/output/*.json
+data/output/*.db
+logs/*.log
+
+# Model cache
+.cache/
+huggingface/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Env files
+.env

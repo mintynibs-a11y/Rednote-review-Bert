@@ -1,0 +1,41 @@
+# 平台启用/禁用配置及各自参数
+platforms:
+  xhs:
+    enabled: true
+    max_pages: 3          # 最大抓取页数
+    page_size: 20         # 每页条数
+    throttle_min: 1.5     # 最小请求间隔（秒）
+    throttle_max: 3.0     # 最大请求间隔（秒）
+    retry_times: 3        # 失败重试次数
+    date_from: ""         # 起始日期 YYYY-MM-DD，为空表示不限
+    date_to: ""           # 截止日期 YYYY-MM-DD，为空表示不限
+
+  jd:
+    enabled: true
+    max_pages: 3
+    page_size: 10
+    throttle_min: 1.0
+    throttle_max: 2.0
+    retry_times: 3
+    date_from: ""
+    date_to: ""
+
+  bilibili:
+    enabled: true
+    max_pages: 3
+    page_size: 20
+    throttle_min: 0.5
+    throttle_max: 1.5
+    retry_times: 3
+    date_from: ""
+    date_to: ""
+
+  zhihu:
+    enabled: true
+    max_pages: 2
+    page_size: 10
+    throttle_min: 2.0
+    throttle_max: 4.0
+    retry_times: 3
+    date_from: ""
+    date_to: ""
