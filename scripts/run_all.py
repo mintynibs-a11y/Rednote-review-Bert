@@ -110,6 +110,15 @@ def _parse_args() -> argparse.Namespace:
         default=str(_REPO_ROOT / "configs" / "platforms.yaml"),
         help="Path to platforms YAML config",
     )
+    parser.add_argument(
+        "--platform-fail-threshold",
+        type=int,
+        default=_PLATFORM_FAIL_THRESHOLD,
+        help=(
+            "Number of consecutive empty-result keywords before a platform is "
+            "skipped with a 'check Cookie/UA/frequency' warning (default: %(default)s)"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -145,6 +154,11 @@ def _save_json(obj: object, path: Path) -> None:
 # Crawl
 # ---------------------------------------------------------------------------
 
+# Number of consecutive keyword failures that triggers a "check credentials"
+# warning and causes the remaining keywords for that platform to be skipped.
+_PLATFORM_FAIL_THRESHOLD = 3
+
+
 def _crawl_platform(
     platform: str,
     keyword: str,
@@ -170,6 +184,10 @@ def _crawl_platform(
         "throttle_max": cfg.get("throttle_max", 2.0),
         "retry_times": cfg.get("retry_times", 3),
     }
+    # Pass through any extra platform-specific keys (e.g. fallback_keywords)
+    for extra_key in ("fallback_keywords",):
+        if extra_key in cfg:
+            kwargs[extra_key] = cfg[extra_key]
 
     logger.info("Crawling platform='%s' keyword='%s' limit=%d …", platform, keyword, limit)
     try:
@@ -255,13 +273,34 @@ def main() -> int:
     # ---- Crawl ----------------------------------------------------------------
     all_raw: list[dict] = []
     crawl_failures = 0
+    # Track consecutive empty results per platform to detect broken credentials
+    platform_consecutive_failures: dict[str, int] = {p: 0 for p in platforms}
+    skipped_platforms: set[str] = set()
 
     for platform in platforms:
         for keyword in keywords:
+            if platform in skipped_platforms:
+                logger.info(
+                    "Skipping platform='%s' keyword='%s' (platform marked as failing)",
+                    platform, keyword,
+                )
+                continue
+
             records = _crawl_platform(platform, keyword, args.limit_per_platform, platform_cfg)
             if not records:
                 crawl_failures += 1
-            all_raw.extend(records)
+                platform_consecutive_failures[platform] += 1
+                if platform_consecutive_failures[platform] >= args.platform_fail_threshold:
+                    logger.error(
+                        "平台 '%s' 已连续 %d 次未能抓取数据，跳过剩余关键词。"
+                        " 请检查 Cookie / UA / 请求频率是否正确。",
+                        platform,
+                        platform_consecutive_failures[platform],
+                    )
+                    skipped_platforms.add(platform)
+            else:
+                platform_consecutive_failures[platform] = 0
+                all_raw.extend(records)
 
     logger.info("Crawl complete: %d raw records, %d failures", len(all_raw), crawl_failures)
 

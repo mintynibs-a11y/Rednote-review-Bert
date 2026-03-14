@@ -21,6 +21,9 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+# Minimum seconds to sleep between individual API requests (anti-rate-limit)
+RATE_LIMIT_SECONDS = 2.0
+
 _XHS_SEARCH_URL = "https://edith.xiaohongshu.com/api/sns/web/v1/search/notes"
 _XHS_HEADERS = {
     "User-Agent": (
@@ -138,27 +141,35 @@ def crawl(
                 if resp.status_code == 200:
                     data = resp.json()
                     if data.get("success") or data.get("code") == 0:
+                        # Polite inter-request sleep every time we get a successful response
+                        time.sleep(random.uniform(1.5, 2.5))
                         break
                     logger.warning(
-                        "[xhs] keyword='%s' page=%d API error: %s",
+                        "[xhs] keyword='%s' page=%d API error code=%s msg=%s — "
+                        "Cookie 可能已失效，请重新获取 XHS_COOKIE 并刷新。",
                         keyword,
                         page,
+                        data.get("code", "?"),
                         data.get("msg", "unknown"),
                     )
                     return _sample_data(keyword, limit)
                 elif resp.status_code == 429:
-                    wait = throttle_max * attempt
+                    wait = RATE_LIMIT_SECONDS * 2 * attempt
                     logger.warning("[xhs] 429 rate limited, waiting %.1fs", wait)
                     time.sleep(wait)
-                elif resp.status_code == 401:
-                    logger.error("[xhs] Cookie expired or invalid (401)")
+                elif resp.status_code in (401, 471):
+                    logger.error(
+                        "[xhs] Cookie 已过期或无效 (HTTP %d)。"
+                        "请重新登录小红书并更新 XHS_COOKIE 环境变量。",
+                        resp.status_code,
+                    )
                     return _sample_data(keyword, limit)
                 else:
                     logger.warning("[xhs] HTTP %d on attempt %d", resp.status_code, attempt)
-                    time.sleep(throttle_max)
+                    time.sleep(RATE_LIMIT_SECONDS)
             except requests.RequestException as exc:
                 logger.warning("[xhs] Request error attempt %d: %s", attempt, exc)
-                time.sleep(throttle_max)
+                time.sleep(RATE_LIMIT_SECONDS)
         else:
             logger.error("[xhs] All retries failed for keyword='%s' page=%d", keyword, page)
             break
@@ -199,7 +210,9 @@ def crawl(
             if len(results) >= limit:
                 break
 
-        time.sleep(random.uniform(throttle_min, throttle_max))
+        effective_min = max(throttle_min, RATE_LIMIT_SECONDS)
+        effective_max = max(throttle_max, RATE_LIMIT_SECONDS)
+        time.sleep(random.uniform(effective_min, effective_max))
         page += 1
 
     if not results:

@@ -98,7 +98,7 @@ def _search_product_ids(
             resp = session.get(
                 _JD_SEARCH_URL,
                 params=params,
-                timeout=15,
+                timeout=8,
                 allow_redirects=True,
             )
             if resp.status_code == 200:
@@ -114,6 +114,9 @@ def _search_product_ids(
                     logger.debug("[jd] Found product IDs: %s", unique_ids)
                     return unique_ids
             time.sleep(random.uniform(throttle_min, throttle_max))
+        except requests.Timeout:
+            logger.warning("[jd] Search timeout on attempt %d for keyword='%s'", attempt, keyword)
+            time.sleep(throttle_max)
         except requests.RequestException as exc:
             logger.warning("[jd] Search attempt %d error: %s", attempt, exc)
             time.sleep(throttle_max)
@@ -151,7 +154,7 @@ def _fetch_reviews(
                 resp = session.get(
                     _JD_REVIEW_URL,
                     params=params,
-                    timeout=15,
+                    timeout=8,
                 )
                 if resp.status_code == 200:
                     try:
@@ -168,6 +171,9 @@ def _fetch_reviews(
                 else:
                     logger.warning("[jd] HTTP %d attempt %d", resp.status_code, attempt)
                     time.sleep(throttle_max)
+            except requests.Timeout:
+                logger.warning("[jd] Review fetch timeout attempt %d for product %s", attempt, product_id)
+                time.sleep(throttle_max)
             except requests.RequestException as exc:
                 logger.warning("[jd] Review fetch attempt %d error: %s", attempt, exc)
                 time.sleep(throttle_max)
@@ -223,9 +229,22 @@ def crawl(
     throttle_min: float = 1.0,
     throttle_max: float = 2.0,
     retry_times: int = 3,
+    fallback_keywords: list[str] | None = None,
     **_kwargs: Any,
 ) -> list[dict[str, Any]]:
-    """Crawl JD reviews for *keyword*, returning up to *limit* records."""
+    """Crawl JD reviews for *keyword*, returning up to *limit* records.
+
+    If no products are found for *keyword*, the search is retried for each
+    entry in *fallback_keywords* (tried in order).  Each entry is a prefix
+    string that is prepended to the original keyword to form a new search
+    query, e.g. ``fallback_keywords=["汽车 "]`` turns ``"轮胎"`` into
+    ``"汽车 轮胎"``.  The first fallback that returns results is used; if
+    none do, sample data is returned.
+
+    Example::
+
+        crawl("轮胎", fallback_keywords=["汽车 ", "电动车 "])
+    """
     cookie = os.environ.get("JD_COOKIE", "").strip()
 
     session = requests.Session()
@@ -233,9 +252,25 @@ def crawl(
     if cookie:
         session.headers["Cookie"] = cookie
 
+    # ---- Primary search -------------------------------------------------------
     product_ids = _search_product_ids(
         keyword, session, throttle_min, throttle_max, retry_times
     )
+
+    # ---- Fallback keyword retries --------------------------------------------
+    if not product_ids and fallback_keywords:
+        for fb_kw in fallback_keywords:
+            combined = f"{fb_kw}{keyword}"
+            logger.info(
+                "[jd] No products for '%s', retrying with fallback keyword '%s'",
+                keyword, combined,
+            )
+            product_ids = _search_product_ids(
+                combined, session, throttle_min, throttle_max, retry_times
+            )
+            if product_ids:
+                break
+
     if not product_ids:
         logger.warning(
             "[jd] Could not find products for keyword='%s', using sample data", keyword

@@ -85,11 +85,27 @@ def _sample_data(keyword: str, limit: int) -> list[dict[str, Any]]:
 
 
 def _build_session() -> requests.Session:
+    """Build a requests Session with Bilibili-appropriate headers and cookies.
+
+    Reads two optional environment variables:
+    - ``BILI_SESSDATA``: the value of the SESSDATA cookie only (most common).
+    - ``BILI_COOKIE``: a full ``name=value; name=value`` cookie string
+      (takes precedence over ``BILI_SESSDATA`` if both are set).
+    """
     session = requests.Session()
     session.headers.update(_HEADERS)
-    sessdata = os.environ.get("BILI_SESSDATA", "").strip()
-    if sessdata:
-        session.cookies.set("SESSDATA", sessdata, domain=".bilibili.com")
+
+    # Full cookie string overrides individual SESSDATA
+    full_cookie = os.environ.get("BILI_COOKIE", "").strip()
+    if full_cookie:
+        session.headers["Cookie"] = full_cookie
+        logger.debug("[bilibili] Using BILI_COOKIE for authentication")
+    else:
+        sessdata = os.environ.get("BILI_SESSDATA", "").strip()
+        if sessdata:
+            session.cookies.set("SESSDATA", sessdata, domain=".bilibili.com")
+            logger.debug("[bilibili] Using BILI_SESSDATA for authentication")
+
     return session
 
 
@@ -111,7 +127,7 @@ def _search_videos(
     }
     for attempt in range(1, retry_times + 1):
         try:
-            resp = session.get(_SEARCH_URL, params=params, timeout=15)
+            resp = session.get(_SEARCH_URL, params=params, timeout=8)
             if resp.status_code == 200:
                 data = resp.json()
                 if data.get("code") == 0:
@@ -119,6 +135,9 @@ def _search_videos(
                 logger.warning("[bilibili] Search API error code %d: %s", data.get("code"), data.get("message"))
                 return []
             logger.warning("[bilibili] HTTP %d attempt %d", resp.status_code, attempt)
+            time.sleep(throttle_max)
+        except requests.Timeout:
+            logger.warning("[bilibili] Search timeout on attempt %d", attempt)
             time.sleep(throttle_max)
         except requests.RequestException as exc:
             logger.warning("[bilibili] Search attempt %d error: %s", attempt, exc)
@@ -152,13 +171,27 @@ def _fetch_comments(
         }
         for attempt in range(1, retry_times + 1):
             try:
-                resp = session.get(_COMMENT_URL, params=params, timeout=15)
+                resp = session.get(_COMMENT_URL, params=params, timeout=8)
                 if resp.status_code == 200:
                     data = resp.json()
                     if data.get("code") == 0:
                         break
                     logger.warning("[bilibili] Comment API code %d", data.get("code"))
                     return results
+                elif resp.status_code in (412, 429):
+                    # Exponential back-off: attempt 1→1 s, 2→2 s, 3→4 s, etc.
+                    backoff = 2 ** (attempt - 1)
+                    logger.warning(
+                        "[bilibili] HTTP %d (rate limited), back-off %.0fs (attempt %d/%d)",
+                        resp.status_code, backoff, attempt, retry_times,
+                    )
+                    time.sleep(backoff)
+                else:
+                    time.sleep(throttle_max)
+            except requests.Timeout:
+                logger.warning(
+                    "[bilibili] Comment fetch timeout on attempt %d (aid=%d)", attempt, aid
+                )
                 time.sleep(throttle_max)
             except requests.RequestException as exc:
                 logger.warning("[bilibili] Comment attempt %d error: %s", attempt, exc)
